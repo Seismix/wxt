@@ -1,6 +1,9 @@
 packages:
   - docs
   - packages/*
+
+autoInstallPeers: false
+
 onlyBuiltDependencies:
   - '@parcel/watcher'
   - dtrace-provider
@@ -8,9 +11,12 @@ onlyBuiltDependencies:
   - sharp
   - simple-git-hooks
   - spawn-sync
-autoInstallPeers: false
+
 patchedDependencies:
+  chrome-launcher@1.2.0: patches/chrome-launcher@1.2.0.patch
   markdown-it-footnote: patches/markdown-it-footnote.patch
+  web-ext-run@0.2.4: patches/web-ext-run@0.2.4.patch
+
 peerDependencyRules:
   ignoreMissing:
     - '@algolia/client-search'

@@ -1,0 +1,16 @@
+diff --git a/lib/extension-runners/chromium.js b/lib/extension-runners/chromium.js
+index 6277e1c634360a0a69b17cb2afd7bd29c2475031..12ebea16370c92f1445097d1c8e9d01d16e040c8 100644
+--- a/lib/extension-runners/chromium.js
++++ b/lib/extension-runners/chromium.js
+@@ -53,6 +53,11 @@ class ChromeDevtoolsProtocolClient {
+       this.#finalizeDisconnect();
+     });
+     incoming.on('close', () => this.#finalizeDisconnect());
++    outgoing.on('error', error => {
++      log.error(error);
++      this.#finalizeDisconnect();
++    });
++    outgoing.on('close', () => this.#finalizeDisconnect());
+     this.outgoingPipe = outgoing;
+   }
+   waitUntilDisconnected() {

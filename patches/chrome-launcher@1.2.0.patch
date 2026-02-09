@@ -1,0 +1,18 @@
+diff --git a/dist/chrome-launcher.js b/dist/chrome-launcher.js
+index d7fb4cf753f817e241554438b317ec333af2e7fc..4852818d07f98f01c51b47eb2741e29340ea1005 100644
+--- a/dist/chrome-launcher.js
++++ b/dist/chrome-launcher.js
+@@ -116,8 +116,11 @@ class Launcher {
+         }
+         if (!this.useDefaultProfile) {
+             // Place Chrome profile in a custom location we'll rm -rf later
+-            // If in WSL, we need to use the Windows format
+-            flags.push(`--user-data-dir=${isWsl ? toWin32Path(this.userDataDir) : this.userDataDir}`);
++            // If in WSL, we need to use the Windows format — but not when a
++            // GUI display is available (WSLg), because Chrome runs as a native
++            // Linux process and needs Linux paths.
++            const hasDisplay = process.env.DISPLAY || process.env.WAYLAND_DISPLAY;
++            flags.push(`--user-data-dir=${isWsl && !hasDisplay ? toWin32Path(this.userDataDir) : this.userDataDir}`);
+         }
+         if (process.env.HEADLESS)
+             flags.push('--headless');

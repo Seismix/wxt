@@ -5,9 +5,15 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  chrome-launcher@1.2.0:
+    hash: 6bfd471202d67f1c0393061d7a2c12aec8718b2d14ccdd2498ee54295735a157
+    path: patches/chrome-launcher@1.2.0.patch
   markdown-it-footnote:
     hash: 5b74a0001a771ff5df790dd36b6883c4794e1f666b231499edb2d65eae8f4930
     path: patches/markdown-it-footnote.patch
+  web-ext-run@0.2.4:
+    hash: 946e85c3ddcbaa523fbb647c5fbd5ffb6f8f69c9896daf081eaf6e4ea8cc50ce
+    path: patches/web-ext-run@0.2.4.patch
 
 importers:
 
@@ -523,7 +529,7 @@ importers:
         version: 5.3.0(@types/node@20.19.32)(jiti@2.6.1)(sass@1.97.3)(tsx@4.21.0)(yaml@2.8.2)
       web-ext-run:
         specifier: ^0.2.4
-        version: 0.2.4
+        version: 0.2.4(patch_hash=946e85c3ddcbaa523fbb647c5fbd5ffb6f8f69c9896daf081eaf6e4ea8cc50ce)
     devDependencies:
       '@faker-js/faker':
         specifier: ^10.2.0
@@ -6538,7 +6544,7 @@ snapshots:
     dependencies:
       readdirp: 5.0.0
 
-  chrome-launcher@1.2.0:
+  chrome-launcher@1.2.0(patch_hash=6bfd471202d67f1c0393061d7a2c12aec8718b2d14ccdd2498ee54295735a157):
     dependencies:
       '@types/node': 20.19.32
       escape-string-regexp: 4.0.0
@@ -9060,11 +9066,11 @@ snapshots:
       glob-to-regexp: 0.4.1
       graceful-fs: 4.2.11
 
-  web-ext-run@0.2.4:
+  web-ext-run@0.2.4(patch_hash=946e85c3ddcbaa523fbb647c5fbd5ffb6f8f69c9896daf081eaf6e4ea8cc50ce):
     dependencies:
       '@babel/runtime': 7.28.2
       '@devicefarmer/adbkit': 3.3.8
-      chrome-launcher: 1.2.0
+      chrome-launcher: 1.2.0(patch_hash=6bfd471202d67f1c0393061d7a2c12aec8718b2d14ccdd2498ee54295735a157)
       debounce: 1.2.1
       es6-error: 4.1.1
       firefox-profile: 4.7.0
