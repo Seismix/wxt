@@ -16,7 +16,7 @@ export function createWslRunner(reason: WslRunnerReason): ExtensionRunner {
       const outDir = relative(process.cwd(), wxt.config.outDir);
       wxt.logger.warn(
         reason === 'chromium'
-          ? `Cannot open Chromium browsers when using WSL. Load "${outDir}" as an unpacked extension manually, or use Firefox (\`wxt -b firefox\`). See https://github.com/GoogleChrome/chrome-launcher/issues/334`
+          ? `Cannot open a Windows Chromium browser when using WSL. Install Chrome inside WSL (https://learn.microsoft.com/windows/wsl/tutorials/gui-apps) and set \`binaries.${wxt.config.browser}\` in your \`web-ext.config.ts\` if it isn't found automatically, or load "${outDir}" as an unpacked extension manually.`
           : `Cannot open the Snap version of Firefox when using WSL, its sandbox can't read the temporary profile in "${tmpdir()}". Load "${outDir}" as an unpacked extension manually, install a non-Snap Firefox (https://support.mozilla.org/kb/install-firefox-linux) and set \`binaries.firefox\` in your \`web-ext.config.ts\`, or set \`TMPDIR\` to a directory inside your home directory.`,
       );
     },
@@ -36,12 +36,48 @@ export async function isUnusableSnapFirefox(
   const path = binary ?? (await which('firefox'));
   if (!path) return false;
 
+  return isSnap(path);
+}
+
+/** The same commands, in the same order, `chrome-launcher` looks for on Linux. */
+const LINUX_CHROMIUM_COMMANDS = [
+  'google-chrome-stable',
+  'google-chrome',
+  'chromium-browser',
+  'chromium',
+];
+
+/**
+ * Returns the Linux Chromium binary to launch inside WSL, or `undefined` when
+ * there isn't one. `chrome-launcher` would otherwise pick the Windows Chrome,
+ * which can't be controlled from WSL: its `--remote-debugging-pipe` uses file
+ * descriptors 3 and 4, and WSL only passes stdin, stdout and stderr through to
+ * Windows processes.
+ */
+export async function findLinuxChromium(
+  binary: string | undefined,
+): Promise<string | undefined> {
+  if (binary) return isWindowsBinary(binary) ? undefined : binary;
+
+  for (const command of LINUX_CHROMIUM_COMMANDS) {
+    const path = await which(command);
+    // The Snap sandbox can't read the temporary profile, same as Firefox.
+    if (path && !(await isSnap(path))) return path;
+  }
+}
+
+function isWindowsBinary(path: string): boolean {
+  return /\.exe$/i.test(path) || /^\/mnt\/[a-z]\//i.test(path);
+}
+
+/** Returns true when the binary is, or runs, a Snap package. */
+async function isSnap(binary: string): Promise<boolean> {
   try {
-    const resolved = await realpath(path);
+    const resolved = await realpath(binary);
     if (resolved.includes('/snap/')) return true;
 
-    // Ubuntu ships `/usr/bin/firefox` as a shell script that runs the Snap,
-    // while a non-Snap Firefox is an ELF binary.
+    // Ubuntu ships `/usr/bin/firefox` and `/usr/bin/chromium-browser` as shell
+    // scripts that run the Snap, while a non-Snap browser is an ELF binary.
     const file = await open(resolved);
     try {
       const { buffer, bytesRead } = await file.read({
@@ -49,7 +85,7 @@ export async function isUnusableSnapFirefox(
       });
       const head = buffer.subarray(0, bytesRead);
       if (head.subarray(0, 4).toString('latin1') === '\x7fELF') return false;
-      return head.toString('utf8').includes('/snap/bin/firefox');
+      return head.toString('utf8').includes('/snap/bin/');
     } finally {
       await file.close();
     }

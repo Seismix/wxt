@@ -6,8 +6,15 @@ import { wxt } from '../wxt';
 import webExt from 'web-ext';
 import { consoleStream } from 'web-ext/util/logger';
 
+export interface WebExtRunnerOptions {
+  /** The Linux Chromium binary to launch, set when running inside WSL. */
+  wslChromiumBinary?: string;
+}
+
 /** Create an `ExtensionRunner` backed by `web-ext`. */
-export function createWebExtRunner(): ExtensionRunner {
+export function createWebExtRunner({
+  wslChromiumBinary,
+}: WebExtRunnerOptions = {}): ExtensionRunner {
   let runner: WebExtRunInstance | undefined;
 
   return {
@@ -38,7 +45,9 @@ export function createWebExtRunner(): ExtensionRunner {
               args: wxtUserConfig?.firefoxArgs,
             }
           : {
-              chromiumBinary: wxtUserConfig?.binaries?.[wxt.config.browser],
+              chromiumBinary:
+                wslChromiumBinary ??
+                wxtUserConfig?.binaries?.[wxt.config.browser],
               chromiumProfile: wxtUserConfig?.chromiumProfile,
               chromiumPref: defu(
                 wxtUserConfig?.chromiumPref,

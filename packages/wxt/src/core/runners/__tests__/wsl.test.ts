@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isUnusableSnapFirefox } from '../wsl';
+import { findLinuxChromium, isUnusableSnapFirefox } from '../wsl';
 
 vi.mock('node:os', async (importOriginal) => {
   const os = await importOriginal<typeof import('node:os')>();
@@ -25,31 +25,31 @@ fi
 exec /snap/bin/firefox "$@"
 `;
 
+let dir: string;
+let originalPath: string | undefined;
+
+async function createExecutable(name: string, contents: string | Buffer) {
+  const file = join(dir, name);
+  await mkdir(join(file, '..'), { recursive: true });
+  await writeFile(file, contents);
+  await chmod(file, 0o755);
+  return file;
+}
+
+beforeEach(async () => {
+  const os = await vi.importActual<typeof import('node:os')>('node:os');
+  dir = await mkdtemp(join(os.tmpdir(), 'wxt-wsl-test-'));
+  homedirMock.mockReturnValue('/home/user');
+  tmpdirMock.mockReturnValue('/tmp');
+  originalPath = process.env.PATH;
+});
+
+afterEach(async () => {
+  process.env.PATH = originalPath;
+  await rm(dir, { recursive: true, force: true });
+});
+
 describe('isUnusableSnapFirefox', () => {
-  let dir: string;
-  let originalPath: string | undefined;
-
-  async function createExecutable(name: string, contents: string | Buffer) {
-    const file = join(dir, name);
-    await mkdir(join(file, '..'), { recursive: true });
-    await writeFile(file, contents);
-    await chmod(file, 0o755);
-    return file;
-  }
-
-  beforeEach(async () => {
-    const os = await vi.importActual<typeof import('node:os')>('node:os');
-    dir = await mkdtemp(join(os.tmpdir(), 'wxt-wsl-test-'));
-    homedirMock.mockReturnValue('/home/user');
-    tmpdirMock.mockReturnValue('/tmp');
-    originalPath = process.env.PATH;
-  });
-
-  afterEach(async () => {
-    process.env.PATH = originalPath;
-    await rm(dir, { recursive: true, force: true });
-  });
-
   it('should detect the Snap binary', async () => {
     const binary = await createExecutable('snap/firefox/current/firefox', '');
 
@@ -100,5 +100,51 @@ describe('isUnusableSnapFirefox', () => {
     await expect(isUnusableSnapFirefox(join(dir, 'missing'))).resolves.toBe(
       false,
     );
+  });
+});
+
+describe('findLinuxChromium', () => {
+  const ELF = Buffer.concat([
+    Buffer.from('\x7fELF', 'latin1'),
+    Buffer.alloc(64),
+  ]);
+
+  it('should use the configured Linux binary', async () => {
+    await expect(findLinuxChromium('/usr/bin/google-chrome')).resolves.toBe(
+      '/usr/bin/google-chrome',
+    );
+  });
+
+  it.each([
+    '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+    '/mnt/d/chrome/chrome',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  ])('should reject the configured Windows binary %s', async (binary) => {
+    await expect(findLinuxChromium(binary)).resolves.toBeUndefined();
+  });
+
+  it('should find Chrome on the PATH in the same order as chrome-launcher', async () => {
+    await createExecutable('bin/chromium', ELF);
+    const chrome = await createExecutable('bin/google-chrome', ELF);
+    process.env.PATH = join(dir, 'bin');
+
+    await expect(findLinuxChromium(undefined)).resolves.toBe(chrome);
+  });
+
+  it("should skip Ubuntu's Snap Chromium shim", async () => {
+    await createExecutable(
+      'bin/chromium-browser',
+      '#!/bin/sh\nexec /snap/bin/chromium "$@"\n',
+    );
+    const chromium = await createExecutable('bin/chromium', ELF);
+    process.env.PATH = join(dir, 'bin');
+
+    await expect(findLinuxChromium(undefined)).resolves.toBe(chromium);
+  });
+
+  it('should return undefined when no Linux Chromium is installed', async () => {
+    process.env.PATH = join(dir, 'empty');
+
+    await expect(findLinuxChromium(undefined)).resolves.toBeUndefined();
   });
 });

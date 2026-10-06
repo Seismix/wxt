@@ -11,6 +11,8 @@ import { wxt } from '../../src/core/wxt';
 
 let isWsl = false;
 let isUnusableSnapFirefox = false;
+let linuxChromium: string | undefined;
+let webExtRunnerOptions: unknown;
 let importWebExtRunnerError: Error | undefined = undefined;
 
 // Mock runners to create constants for checking equality
@@ -40,7 +42,8 @@ const manualRunner = createManualRunner();
 vi.mock('../../src/core/runners/web-ext', () => {
   const runner = createMockExtensionRunner('web-ext');
   return {
-    createWebExtRunner: () => {
+    createWebExtRunner: (options: unknown) => {
+      webExtRunnerOptions = options;
       if (!importWebExtRunnerError) return runner;
       else throw importWebExtRunnerError;
     },
@@ -56,6 +59,7 @@ vi.mock('../../src/core/runners/wsl', () => {
   return {
     createWslRunner: (reason: keyof typeof runners) => runners[reason],
     isUnusableSnapFirefox: async () => isUnusableSnapFirefox,
+    findLinuxChromium: async () => linuxChromium,
   };
 });
 const wslChromiumRunner = createWslRunner('chromium');
@@ -83,6 +87,8 @@ describe('Runners', () => {
   beforeEach(() => {
     isWsl = false;
     isUnusableSnapFirefox = false;
+    linuxChromium = undefined;
+    webExtRunnerOptions = undefined;
     importWebExtRunnerError = undefined;
   });
 
@@ -186,7 +192,18 @@ describe('Runners', () => {
         isWsl = true;
       });
 
-      it('should use the WSL runner for chromium', async () => {
+      it('should use the web-ext runner for a Linux chromium', async () => {
+        linuxChromium = '/usr/bin/google-chrome';
+
+        await TestProject.simple().registerWxt(command);
+
+        expect(wxt.config.runner).toBe(webExtRunner);
+        expect(webExtRunnerOptions).toEqual({
+          wslChromiumBinary: '/usr/bin/google-chrome',
+        });
+      });
+
+      it('should use the WSL runner without a Linux chromium', async () => {
         await TestProject.simple().registerWxt(command);
 
         expect(wxt.config.runner).toBe(wslChromiumRunner);
