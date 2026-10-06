@@ -1,7 +1,16 @@
 import { ExtensionRunner } from '../../types';
-import { access, constants, open, realpath } from 'node:fs/promises';
+import {
+  access,
+  constants,
+  mkdtemp,
+  open,
+  realpath,
+  rm,
+  stat,
+} from 'node:fs/promises';
+import { rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join, relative } from 'node:path';
+import { delimiter, dirname, join, relative } from 'node:path';
 import { wxt } from '../wxt';
 
 export type WslRunnerReason = 'chromium' | 'snap-firefox';
@@ -70,6 +79,65 @@ function isWindowsBinary(path: string): boolean {
   return /\.exe$/i.test(path) || /^\/mnt\/[a-z]\//i.test(path);
 }
 
+export interface WslChromiumProfile {
+  chromiumProfile: string;
+  keepProfileChanges: true;
+  args: string[];
+  cleanup(): Promise<void>;
+}
+
+/**
+ * Inside WSL, `chrome-launcher` rewrites `--user-data-dir` into a Windows UNC
+ * path, so a Linux Chrome creates a `\\wsl.localhost\...` folder in the working
+ * directory and ignores `web-ext`'s profile. Passing the flag again in the
+ * Chrome args overrides it, but that needs the profile path up front, so WXT
+ * creates the temporary profile itself instead of letting `web-ext` do it.
+ *
+ * Returns `undefined` when the user's `chromiumProfile` is copied to a
+ * temporary directory by `web-ext`, whose path WXT can't know.
+ *
+ * See https://github.com/GoogleChrome/chrome-launcher/issues/334
+ */
+export async function prepareWslChromiumProfile(config: {
+  chromiumProfile?: string;
+  keepProfileChanges?: boolean;
+}): Promise<WslChromiumProfile | undefined> {
+  const { chromiumProfile, keepProfileChanges } = config;
+
+  if (chromiumProfile) {
+    if (!keepProfileChanges) return;
+
+    // Same as `web-ext`: a profile directory inside a user data directory is
+    // launched with its parent as the user data directory.
+    const userDataDir =
+      (await exists(join(chromiumProfile, 'Secure Preferences'))) &&
+      !(await exists(join(chromiumProfile, 'Local State')))
+        ? dirname(chromiumProfile)
+        : chromiumProfile;
+    return {
+      chromiumProfile,
+      keepProfileChanges: true,
+      args: [`--user-data-dir=${userDataDir}`],
+      cleanup: async () => {},
+    };
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), 'wxt-chromium-profile-'));
+  // `chrome-launcher` calls `process.exit()` on Ctrl+C, before `closeBrowser`
+  // gets a chance to clean up.
+  const removeOnExit = () => rmSync(dir, { recursive: true, force: true });
+  process.once('exit', removeOnExit);
+  return {
+    chromiumProfile: dir,
+    keepProfileChanges: true,
+    args: [`--user-data-dir=${dir}`],
+    async cleanup() {
+      process.off('exit', removeOnExit);
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** Returns true when the binary is, or runs, a Snap package. */
 async function isSnap(binary: string): Promise<boolean> {
   try {
@@ -89,6 +157,15 @@ async function isSnap(binary: string): Promise<boolean> {
     } finally {
       await file.close();
     }
+  } catch {
+    return false;
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
   } catch {
     return false;
   }

@@ -4,12 +4,17 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findLinuxChromium, isUnusableSnapFirefox } from '../wsl';
+import {
+  findLinuxChromium,
+  isUnusableSnapFirefox,
+  prepareWslChromiumProfile,
+} from '../wsl';
 
 vi.mock('node:os', async (importOriginal) => {
   const os = await importOriginal<typeof import('node:os')>();
@@ -146,5 +151,76 @@ describe('findLinuxChromium', () => {
     process.env.PATH = join(dir, 'empty');
 
     await expect(findLinuxChromium(undefined)).resolves.toBeUndefined();
+  });
+});
+
+describe('prepareWslChromiumProfile', () => {
+  beforeEach(() => {
+    tmpdirMock.mockReturnValue(dir);
+  });
+
+  it('should create a temporary profile and pass it as --user-data-dir', async () => {
+    const profile = await prepareWslChromiumProfile({});
+
+    expect(profile).toMatchObject({
+      chromiumProfile: expect.stringContaining(
+        join(dir, 'wxt-chromium-profile-'),
+      ),
+      keepProfileChanges: true,
+      args: [`--user-data-dir=${profile!.chromiumProfile}`],
+    });
+    await expect(stat(profile!.chromiumProfile)).resolves.toBeTruthy();
+
+    await profile!.cleanup();
+    await expect(stat(profile!.chromiumProfile)).rejects.toThrow();
+  });
+
+  it('should create a temporary profile when keepProfileChanges is set without a profile', async () => {
+    const profile = await prepareWslChromiumProfile({
+      keepProfileChanges: true,
+    });
+
+    expect(profile?.chromiumProfile).toContain('wxt-chromium-profile-');
+  });
+
+  it('should reuse a kept user data directory', async () => {
+    const userDataDir = join(dir, 'chrome');
+    await mkdir(join(userDataDir, 'Default'), { recursive: true });
+    await writeFile(join(userDataDir, 'Local State'), '{}');
+
+    const profile = await prepareWslChromiumProfile({
+      chromiumProfile: userDataDir,
+      keepProfileChanges: true,
+    });
+
+    expect(profile).toMatchObject({
+      chromiumProfile: userDataDir,
+      args: [`--user-data-dir=${userDataDir}`],
+    });
+    await profile!.cleanup();
+    await expect(stat(userDataDir)).resolves.toBeTruthy();
+  });
+
+  it("should use a kept profile directory's parent as the user data directory", async () => {
+    const userDataDir = join(dir, 'chrome');
+    const profileDir = join(userDataDir, 'Profile 1');
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(join(profileDir, 'Secure Preferences'), '{}');
+
+    const profile = await prepareWslChromiumProfile({
+      chromiumProfile: profileDir,
+      keepProfileChanges: true,
+    });
+
+    expect(profile).toMatchObject({
+      chromiumProfile: profileDir,
+      args: [`--user-data-dir=${userDataDir}`],
+    });
+  });
+
+  it("should return undefined when web-ext copies the user's profile", async () => {
+    await expect(
+      prepareWslChromiumProfile({ chromiumProfile: join(dir, 'chrome') }),
+    ).resolves.toBeUndefined();
   });
 });

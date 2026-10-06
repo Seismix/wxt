@@ -5,6 +5,7 @@ import defu from 'defu';
 import { wxt } from '../wxt';
 import webExt from 'web-ext';
 import { consoleStream } from 'web-ext/util/logger';
+import { prepareWslChromiumProfile, WslChromiumProfile } from './wsl';
 
 export interface WebExtRunnerOptions {
   /** The Linux Chromium binary to launch, set when running inside WSL. */
@@ -16,6 +17,7 @@ export function createWebExtRunner({
   wslChromiumBinary,
 }: WebExtRunnerOptions = {}): ExtensionRunner {
   let runner: WebExtRunInstance | undefined;
+  let wslProfile: WslChromiumProfile | undefined;
 
   return {
     canOpen() {
@@ -31,11 +33,23 @@ export function createWebExtRunner({
       };
 
       const wxtUserConfig = wxt.config.webExt.config;
+      if (wslChromiumBinary) {
+        wslProfile = await prepareWslChromiumProfile({
+          chromiumProfile: wxtUserConfig?.chromiumProfile,
+          keepProfileChanges: wxtUserConfig?.keepProfileChanges,
+        });
+        if (!wslProfile)
+          wxt.logger.warn(
+            '`chromiumProfile` is ignored when using WSL, unless `keepProfileChanges` is enabled. See https://github.com/GoogleChrome/chrome-launcher/issues/334',
+          );
+      }
+
       const userConfig = {
         browserConsole: wxtUserConfig?.openConsole,
         devtools: wxtUserConfig?.openDevtools,
         startUrl: wxtUserConfig?.startUrls,
-        keepProfileChanges: wxtUserConfig?.keepProfileChanges,
+        keepProfileChanges:
+          wslProfile?.keepProfileChanges ?? wxtUserConfig?.keepProfileChanges,
         chromiumPort: wxtUserConfig?.chromiumPort,
         ...(wxt.config.browser === 'firefox'
           ? {
@@ -48,7 +62,8 @@ export function createWebExtRunner({
               chromiumBinary:
                 wslChromiumBinary ??
                 wxtUserConfig?.binaries?.[wxt.config.browser],
-              chromiumProfile: wxtUserConfig?.chromiumProfile,
+              chromiumProfile:
+                wslProfile?.chromiumProfile ?? wxtUserConfig?.chromiumProfile,
               chromiumPref: defu(
                 wxtUserConfig?.chromiumPref,
                 DEFAULT_CHROMIUM_PREFS,
@@ -56,6 +71,7 @@ export function createWebExtRunner({
               args: [
                 '--unsafely-disable-devtools-self-xss-warnings',
                 ...(wxtUserConfig?.chromiumArgs ?? []),
+                ...(wslProfile?.args ?? []),
               ],
             }),
       };
@@ -79,7 +95,12 @@ export function createWebExtRunner({
       wxt.logger.debug('web-ext config:', finalConfig);
       wxt.logger.debug('web-ext options:', options);
 
-      runner = await webExt.cmd.run(finalConfig, options);
+      try {
+        runner = await webExt.cmd.run(finalConfig, options);
+      } catch (err) {
+        await cleanupWslProfile();
+        throw err;
+      }
 
       const duration = Date.now() - startTime;
       wxt.logger.success(`Opened browser in ${formatDuration(duration)}`);
@@ -87,8 +108,14 @@ export function createWebExtRunner({
 
     async closeBrowser() {
       await runner?.exit();
+      await cleanupWslProfile();
     },
   };
+
+  async function cleanupWslProfile() {
+    await wslProfile?.cleanup();
+    wslProfile = undefined;
+  }
 }
 
 // https://github.com/mozilla/web-ext/blob/e37e60a2738478f512f1255c537133321f301771/src/util/logger.js#L12
